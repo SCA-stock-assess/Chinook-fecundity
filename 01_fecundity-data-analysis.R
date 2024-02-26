@@ -3,8 +3,10 @@
 pkgs <- c("tidyverse", "ggridges", "readxl", "writexl", "here", "httr", "jsonlite", "magrittr",
           "ggExtra", "ggpmisc")
 #install.packages(pkgs)
+#remotes::install_git("https://github.com/Pacific-salmon-assess/saaWeb")
 
 library(tidyverse); theme_set(theme_bw(base_size = 18))
+library(saaWeb)
 library(ggridges)
 library(ggpmisc)
 library(ggExtra)
@@ -21,38 +23,27 @@ library(magrittr)
 # Thanks to Mike O'Brien for the code
 
 # Declare function for extracting data from a single batch
-get_age_detail <- function(batch_id){
-  url <- paste0('http://pac-salmon.dfo-mpo.gc.ca/Api.CwtDataEntry.v2/api/AgeBatchDetail/ScaleAgeDetail/', 
-                batch_id)
-  x <- httr::GET(url, authenticate(':', ':','ntlm'))
-  y <- batch_df_sc_sock <- jsonlite::fromJSON(httr::content(x, "text"))
-  return(y)
-}
 
 
 # Extract web data 
-sc_ages <- httr::GET(
-  'http://pac-salmon.dfo-mpo.gc.ca/Api.CwtDataEntry.v2/api/Report/GetAgeBatchList', 
-  httr::authenticate(':', ':','ntlm')
-) %>%
-  # Get list of available age result batches
-  httr::content(x = .,  'text') |> 
-  jsonlite::fromJSON() |>
-  # Filter batch list to keep only Chinook samples from 2021 onward
+sc_age_batches <- saaWeb::getAgeBatchList() |> 
   filter(
-    Species  == 'Chinook',
-    Sector == "SC",
     SampleYear > 2020,
+    Sector == "SC",
+    Species == "Chinook",
     str_detect(ProjectName, "(?i)robertson|conuma")
-  ) |> # Keep only Robertson and Conuma samples
-  pull(Id) %>% # Extract column of age batch Ids from resulting dataframe
-  purrr::map_dfr(., get_age_detail) |> # Run each batch ID through the function to extract its aging data
-  mutate(across(matches("(?i)container|fishnumber"), as.numeric)) |> # Convert book and cell # to numeric
-  rename(GR_Age = GrAge) 
+  ) |> 
+  pull(Id)
+
+
+# Get ages
+sc_ages <- saaWeb::getAgeBatchScaleResults(sc_age_batches) |> 
+  janitor::clean_names()
 
 
 
 # Load collection data from all study years -------------------------------
+
 
 # Table of data files with sheet names
 data_files <- list.files(
@@ -129,32 +120,30 @@ fec_data0 <- data_files |>
 
 # Merge age data with original collection data
 fec_data <- fec_data0 |> 
+  mutate(across(everything(), as.character)) |> 
   left_join(
     select(sc_ages, matches("(?i)container|number|age")),
     by = c(
-      "scale_book_no" = "ContainerId",
-      "scale_book_fish_no" = "FishNumber"
-      )
+      "scale_book_no" = "container_id",
+      "scale_book_fish_no" = "fish_number"
+    )
   ) |> 
+  mutate(across(everything(), parse_guess)) |> 
   rename_with(tolower) |> # Convert new columns to lowercase
   mutate(
-    resolved_age_gr = case_when( # Use CWT ages in preference to scale ages
+    resolved_age_gr = case_when( 
+      # Use CWT ages in preference to scale ages
       !is.na(resolved_scale_age_jt) ~ as.character(resolved_scale_age_jt),
+      str_detect(gr_age, "[[:digit:]]{1}(?=M)") ~ paste0(as.numeric(str_extract(gr_age, "^[[:digit:]]")) + 1, 1),
+      str_detect(gr_age, "[[:alpha:]]") ~ NA_character_,
       TRUE ~ gr_age
-    ) %>%
-      if_else( # Convert partial ages to sub-1s
-        str_detect(., "[[:digit:]]{1}(?=M)"),
-        paste0(
-          as.numeric(str_extract(., "^[[:digit:]]")) + 1, # Add 1 to marine age
-          1
-        ),
-        .
-      ),
+    ),
     comments = case_when(
       str_detect(comment, "^[[:digit:]]+$") ~ comments,
       is.na(comment) & is.na(comments) ~ NA_character_,
       TRUE ~ paste(comments, ";", comment)
-    )
+    ),
+    avg_f_egg_weight = as.numeric(avg_f_egg_weight)
   ) |> 
   select(-contains("cwt_ageresol"), -comment, -`10_egg_length_mm`)
 
@@ -230,7 +219,7 @@ list(fec_data, fec_data_sum) |>
      )
    ) +
    geom_point(
-     aes(shape = year),
+     aes(shape = as.factor(year)),
      alpha = 0.5
    ) +
    geom_smooth(method = "lm") +
