@@ -196,6 +196,7 @@ list(fec_data, fec_data_sum) |>
 
 # Plot fecundity data -----------------------------------------------------
 
+
 # Holistic plot of stocks and years
 (p1 <- fec_data_sum |> 
    mutate(avg_f_egg_weight = avg_f_egg_weight * 1000) |> # Convert to mg
@@ -228,100 +229,165 @@ list(fec_data, fec_data_sum) |>
      aes(label = ..rr.label..),
      parse = TRUE,
      label.y = c(0.85, 0.95)) +
+   guides(shape = guide_legend(override.aes= list(size = 3))) +
    labs(
      y = NULL,
-     x = "Post-orbital to hypural length (mm)"
+     x = "Post-orbital to hypural length (mm)",
+     shape = "year"
    ) +
-   theme(strip.placement = "outside",
-         strip.background.y = element_blank())
+   theme(
+     strip.placement = "outside",
+     strip.background.y = element_blank()
+   )
 )
+
 
 # Ridgeline plot showing fecundity by age
 (p2 <- fec_data_sum |> 
-  filter(!is.na(resolved_age_gr)) |> 
-  ggplot(aes(est_fec_corr, site)) +
-  facet_wrap(
-    ~resolved_age_gr,
-    ncol = 1,
-    strip.position = "right",
-    labeller = as_labeller(function(x) (paste("Age", str_extract(x, "[[:digit:]]"))))
+    filter(!is.na(resolved_age_gr)) |> 
+    ggplot(aes(est_fec_corr, site)) +
+    facet_wrap(
+      ~resolved_age_gr,
+      ncol = 1,
+      strip.position = "right",
+      labeller = as_labeller(function(x) (paste("Age", str_extract(x, "[[:digit:]]"))))
     ) +
-  geom_density_ridges(
-    jittered_points = TRUE,
-    position = "raincloud",
-    alpha = 0.7,
-    scale = 1,
-    point_alpha = 0.7,
-    quantile_lines = TRUE,
-    quantiles = 2,
-    vline_colour = "red"
-  ) +
-  labs(
-    x = "Estimated fecundity",
-    y = "Hatchery stock sampled"
-  )
+    geom_density_ridges(
+      alpha = 0.7,
+      quantile_lines = TRUE,
+      quantiles = 2,
+      vline_colour = "red"
+    ) +
+    geom_density_ridges(
+      aes(point_colour = as.character(year)),
+      jittered_points = TRUE,
+      position = "raincloud",
+      alpha = 0,
+      colour = NA,
+      point_alpha = 0.7
+    ) +
+    scale_discrete_manual(
+      aesthetics = "point_colour",
+      values = RColorBrewer::brewer.pal(length(unique(fec_data_sum$year)), "Dark2"),
+      name = "year",
+      guide = guide_legend(override.aes = list(point_size = 3))
+    ) +
+    labs(
+      x = "Estimated fecundity",
+      y = "Hatchery stock sampled"
+    ) +
+    theme(
+      legend.position = c(0.98,0.98),
+      legend.justification = c("right", "top"),
+      legend.background = element_rect(colour = "black")
+    )
 )
 
-# Plot showing fecundity by length and age
-fec_data_sum |> 
-  filter(!is.na(resolved_age_gr),
-         !(poh_length_mm > 700 & resolved_age_gr == "31")) |> # Remove some outliers
-  mutate(
-    group = paste0(site, year),
-    resolved_age_gr = str_extract(resolved_age_gr, "^[[:digit:]]")
-  ) |> 
-  group_split(group) |> 
-  map(
-    function(data) {
-      title <- paste(unique(data$site), unique(data$year))
-      
-      plot <- data |> 
-        ggplot(aes(poh_length_mm, est_fec_corr)) +
-        geom_point(aes(colour = resolved_age_gr, size = avg_egg_length),
-                   alpha = 0.75) +
-        geom_smooth(method = "lm", colour = "black") +
-        stat_poly_eq(formula = y~x, 
-                     aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")),
-                     parse = TRUE) + 
-        scale_radius(
-          breaks = c(6:9), 
-          range = c(3, 4.5),
-          guide = guide_legend(
-            title.position = "top",
-            label.position = "bottom",
-            label.vjust = 3
-          )
-        ) +
-        scale_colour_viridis_d(
-          option = "mako", 
-          direction = -1, 
-          end = 0.8,
-          guide = guide_legend(
-            title.position = "top",
-            label.position = "bottom",
-            override.aes = list(size = 4),
-            label.vjust = 3
-          )
-        ) +
-        labs(
-          x = "Post-orbital to hypural length (mm)",
-          y = "Estimated fecundity",
-          size = "Mean egg diameter (mm)",
-          colour = "Total age (years)",
-          title = title
-        ) +
-        theme(legend.position = "bottom")
-      
-      marginal_plot <- ggMarginal(
-        plot,
-        type = "density", 
-        groupColour = TRUE, 
-        groupFill = TRUE,
-        margins = "y"
-      )
-      
-      return(marginal_plot)
-    }
-  )
 
-  
+# Plots showing fecundity by length and age
+(p3 <- fec_data_sum |> 
+    filter(!is.na(resolved_age_gr),
+           !(poh_length_mm > 700 & resolved_age_gr == "31")) |> # Remove some outliers
+    mutate(
+      group = paste0(site, year),
+      resolved_age_gr = str_extract(resolved_age_gr, "^[[:digit:]]")
+    ) %>%
+    split(.$group) |> 
+    map(
+      function(data) {
+        title <- paste(unique(data$site), unique(data$year))
+        
+        plot <- data |> 
+          ggplot(aes(poh_length_mm, est_fec_corr)) +
+          geom_point(aes(colour = resolved_age_gr, size = avg_egg_length),
+                     alpha = 0.75) +
+          geom_smooth(method = "lm", colour = "black") +
+          stat_poly_eq(formula = y~x, 
+                       aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")),
+                       parse = TRUE) + 
+          scale_radius(
+            breaks = c(6:9), 
+            range = c(3, 4.5),
+            guide = guide_legend(
+              title.position = "top",
+              label.position = "bottom",
+              label.vjust = 3
+            )
+          ) +
+          scale_colour_viridis_d(
+            option = "mako", 
+            direction = -1, 
+            end = 0.8,
+            guide = guide_legend(
+              title.position = "top",
+              label.position = "bottom",
+              override.aes = list(size = 4),
+              label.vjust = 3
+            )
+          ) +
+          labs(
+            x = "Post-orbital to hypural length (mm)",
+            y = "Estimated fecundity",
+            size = "Mean egg diameter (mm)",
+            colour = "Total age (years)",
+            #title = title
+          ) +
+          theme(legend.position = "bottom")
+        
+        marginal_plot <- ggMarginal(
+          plot,
+          type = "density", 
+          groupColour = TRUE, 
+          groupFill = TRUE,
+          margins = "y"
+        )
+        
+        return(marginal_plot)
+      }
+    )
+)
+
+
+# Save plots
+# Demographic correlations
+ggsave(
+  plot = p1,
+  filename = here(
+    "plots",
+    "R-PLOT_fecundity_egg-size_length_correlations.png"
+  ),
+  height = 8,
+  width = 7,
+  units = "in"
+)
+
+
+# Ridgelines
+ggsave(
+  plot = p2,
+  filename = here(
+    "plots",
+    "R-PLOT_fecundity_by_age_ridges.png"
+  ),
+  height = 8,
+  width = 8,
+  units = "in"
+)
+
+
+# Marginal histogram plots
+p3 |> 
+  iwalk(
+    ~ ggsave(
+      plot = .x,
+      filename = paste0(
+        here("plots"),
+        "/R-PLOT_fecundity_by_length_",
+        .y,
+        ".png"
+      ),
+      width = 8,
+      height = 6,
+      units = "in"
+    )
+  )
