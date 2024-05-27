@@ -253,18 +253,18 @@ list(fec_data, fec_data_sum) |>
       labeller = as_labeller(function(x) (paste("Age", str_extract(x, "[[:digit:]]"))))
     ) +
     geom_density_ridges(
-      alpha = 0.7,
-      quantile_lines = TRUE,
-      quantiles = 2,
-      vline_colour = "red"
-    ) +
-    geom_density_ridges(
       aes(point_colour = as.character(year)),
       jittered_points = TRUE,
       position = "raincloud",
       alpha = 0,
       colour = NA,
       point_alpha = 0.7
+    ) +
+    geom_density_ridges(
+      alpha = 0.7,
+      quantile_lines = TRUE,
+      quantiles = 2,
+      vline_colour = "red"
     ) +
     scale_discrete_manual(
       aesthetics = "point_colour",
