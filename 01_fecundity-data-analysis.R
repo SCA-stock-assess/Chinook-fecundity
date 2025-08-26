@@ -26,7 +26,10 @@ library(magrittr)
 
 
 # Extract web data 
-sc_age_batches <- saaWeb::getAgeBatchList() |> 
+sc_age_batches <- c(2021:2025) |> # Select range of process years
+  # (Note, have to enter password once for EACH year requested...)
+  map(\(x) saaWeb::getAgeBatchList(process_year = x)) |> 
+  list_rbind() |> 
   filter(
     SampleYear > 2020,
     Sector == "SC",
@@ -391,3 +394,71 @@ p3 |>
       units = "in"
     )
   )
+
+
+
+# Multiple regression model to predict fecundity --------------------------
+
+
+# Starting with a fixed-effects only model currently because (as of 2025)
+# there are only 3 years of data and two sites. In future, year and site could
+# be re-modeled as random effects when sufficient sample sizes are attained 
+# (e.g. 3 sites, 4+ years). Note that one could use the full data and model 
+# female ID as a random intercept, but for now I am sticking to the LM 
+# framework for simplicity. 
+
+# Due to confounding of site and year, I will treat them as a combined
+# fixed intercept:
+model_data <- fec_data_sum |> 
+  mutate(
+    site_year = interaction(site, year, sep = "_"),
+    poh_center = scale(poh_length_mm, scale = FALSE)
+  )
+
+
+# Fit the multiple regression model
+fec_mr <- lm(
+  est_fec_corr ~ resolved_age_gr + poh_center + site_year,
+  data = model_data
+)
+
+
+summary(fec_mr)
+
+
+# Build an example predictive dataset
+pred_frame <- with(
+  model_data,
+  expand_grid(
+    poh_length_mm = seq(
+      min(poh_length_mm, na.rm = TRUE), 
+      max(poh_length_mm, na.rm = TRUE), 
+      length.out = 100
+    ),
+    site_year = unique(site_year),
+    resolved_age_gr = unique(resolved_age_gr[!is.na(resolved_age_gr)])
+  )
+) |> 
+  mutate(
+    poh_center = scale(
+      poh_length_mm, 
+      center = attr(model_data$poh_center, "scaled:center"),
+      scale = FALSE
+    )
+  )
+
+
+# Cast predictions on pred_frame
+fec_pred <- predict(
+  fec_mr, 
+  pred_frame, 
+  interval = "prediction",
+  level = 0.8
+) |> 
+  cbind(pred_frame) |> 
+  rename_with(\(x) paste0(x, "_80"), .cols = c(lwr, upr))
+
+
+# Export model and prediction data as .RDS
+list("fecundity model" = fec_mr, "prediction data example" = fec_pred) |> 
+  saveRDS(here("WCVI_hatchery_Chinook_fecundity_predictive_model.rds"))
